@@ -15,10 +15,6 @@ openai.api_key = os.getenv("OPEN_AI_APIKEY")
 df_to_convert = pd.read_csv(args.source)
 template = pd.read_csv(args.template)
 
-# переводим все значения в строки, чтобы в дальнейшем избежать ошибок
-df_to_convert = df_to_convert.astype('str')
-template = template.astype('str')
-
 # генерируем список примеров данных из первой строки датафрейма, из которых модель подходящие значения
 options = []
 for i in df_to_convert[:1].values.tolist()[0]:
@@ -47,7 +43,7 @@ List of options: {op}"""
 # цикл запросов к модели, в ходе которого формируется список ответов модели.
 result_values = []
 for i_col in template.columns:
-    examples = ', '.join(template[i_col].tolist())
+    examples = ', '.join(template[i_col].astype('str').tolist())
     response = openai.ChatCompletion.create(
         model='gpt-4',
         messages=[
@@ -66,10 +62,38 @@ for i in result_values:
 result_df = df_to_convert[result_columns]
 result_df.columns = template.columns
 
-# проводим обработку данных для приведения их к формату датафрейма-образца
-result_df['Date'] = pd.to_datetime(result_df['Date']).apply(lambda x: x.strftime('%m-%d-%Y'))
-result_df['PolicyNumber'] = result_df['PolicyNumber'].apply(lambda x: re.sub(r'[^A-Z0-9]', '', x))
-result_df['Premium'] = result_df['Premium'].apply(lambda x: int(float(x)))
+
+system_prompt2 = """You are a data scientist analyzing two tables. Both tables contain the same data, but may differ in their format. 
+When analyzing data you use the Pandas library.
+Your goal is to write a Python finction that converts data format from the first table to the data format from the second table. 
+You can only change data types and replace or remove punctuation. 
+Python function should be like convert_data(df, column_name).
+If the data doesn't need processing, return 'convert_data(df, column_name): return df'.
+"""
+
+def generate_prompt_for_func(data1, data2, col_name):
+    return f"""Data from the first table: {data2}
+    
+Data from the second table: {data1}
+
+The name of column is {col_name}
+
+Return only the function without importing libraries, don't add any extra description, text and markdown syntax.
+"""
+
+
+for i_col in result_df.columns:
+    examples = ', '.join(template[i_col].sample(8).astype('str').tolist())
+    data_to_analyse = ', '.join(result_df[i_col].sample(8).astype('str').tolist())
+    response = openai.ChatCompletion.create(
+        model='gpt-4',
+        messages=[
+        {"role": "system", "content": system_prompt2},
+        {"role": "user", "content": generate_prompt_for_func(examples, data_to_analyse, i_col)}],
+        temperature=0)
+    response_code = response['choices'][0]['message']['content']
+    exec(response_code)
+    result_df = convert_data(result_df, i_col)
 
 # сохраняем результат. Значение по умолчанию - текущая директория
 result_df.to_csv(args.target, index=False)
