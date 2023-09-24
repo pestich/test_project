@@ -10,8 +10,7 @@ parser.add_argument('--template', type=str, help='Input dir for template df')
 parser.add_argument('--target', type=str, help='Output dir for result df', default='target.csv')
 args = parser.parse_args()
 
-openai.api_key = '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'
-# os.getenv("OPEN_AI_APIKEY")
+openai.api_key = os.getenv("OPEN_AI_APIKEY")
 # загружаем данные
 df_to_convert = pd.read_csv(args.source)
 template = pd.read_csv(args.template)
